@@ -1,0 +1,190 @@
+body {
+    font-family: Arial, sans-serif;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    background-color: #f5f5f5;
+}
+nav {
+    background-color: #e2e1e1;
+    padding: 10px 0;
+}
+nav ul {
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+}
+nav li {
+    margin: 0 15px;
+}
+nav a {
+    color: black;
+    text-decoration: none;
+    font-size: 18px;
+}
+nav a:hover {
+    color: #e0e0e0;
+}
+#upload-container {
+    border: 2px dashed #ccc;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 20px;
+}
+#process-container {
+    border: 2px dashed #ccc;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+.process-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.step-label {
+    min-width: 50px;
+    font-weight: bold;
+}
+#patch-button, #predict-button, #merge-button {
+    display: block;
+}
+#download-container {
+    border: 2px dashed #ccc;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 20px;
+    display: flex;
+    justify-content: flex-start;
+    gap: 10px;
+
+}
+#file-input, #download-csv-btn, #download-img-btn {
+    display: none;
+}
+#file-label {
+    cursor: pointer;
+    background-color: #f0f0f0;
+    padding: 10px;
+    border-radius: 5px;
+    border: 1px solid black;
+    display: inline-block;
+    transition: background-color 0.3s ease;
+}
+#file-label:hover {
+    background-color: #e0e0e0;
+}
+#file-label:active {
+    background-color: #d0d0d0;
+}
+#status-message {
+    margin-top: 20px;
+    font-weight: bold;
+}
+#label{
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+.hidden{
+    display: none;
+}
+
+.jobs-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding: 20px;
+    justify-content: flex-start;
+    align-items: flex-start;
+}
+
+.job-panel {
+    flex: 1;
+    min-width: 350px;
+    max-width: 450px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    margin: 0;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    background-color: white;
+    display: flex;
+    flex-direction: column;
+    height: 500px;
+    will-change: transform, opacity;
+}
+.job-panel.minimized {
+    height: auto;
+    max-height: 80px; /* Just enough for header */
+    overflow: hidden;
+}
+
+.panel-header {
+    background: #f5f5f5;
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #ddd;
+    border-radius: 8px 8px 0 0;
+}
+
+.panel-content {
+    padding: 15px;
+    flex-grow: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.job-panel.minimized .panel-content {
+    display: none;
+}
+
+.status-line, .time-info, .progress-container {
+    margin-bottom: 10px;
+}
+
+.progress-indicator {
+    transition: width 0.3s ease-out;
+}
+
+.output-container {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.output-log {
+    contain: strict;
+    flex-grow: 1;
+    background-color: #f8f8f8;
+    border: 1px solid #e0e0e0;
+    padding: 10px;
+    overflow-y: auto;
+    overflow-anchor: none;
+    font-family: monospace;
+    white-space: pre-wrap;
+    margin-top: 5px;
+}
+
+.minimize-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 5px;
+    transition: transform 0.2s;
+}
+
+.job-panel.minimized .minimize-btn {
+    transform: rotate(180deg);
+}

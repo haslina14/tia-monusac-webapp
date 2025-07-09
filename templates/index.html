@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Immune Cells Prediction Tool</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <nav>
+        <ul>
+            <li><a href="{{ url_for('index') }}">Home</a></li>
+            <li><a href="{{ url_for('tutorial') }}">Tutorial</a></li>
+            <li><a href="{{ url_for('contact') }}">Contact</a></li>
+        </ul>
+    </nav>
+    <h1>Prediction Immune Cells Type on WSI</h1>
+    <p>Predict epithelial, lymphocyte, macrophage and neutrophils using nucleus segmentation model</p>
+    <p>(Note: Please read how to use this tools for guideline)</p>
+    <div id="upload-container">
+        <label>Upload a file:</label>
+        <input type="file" id="file-input" name="file" accept=".bif,.svs,.tif">
+        <label for="file-input" id="file-label">
+            Click to Select a File (BIF, SVS, or TIF)
+        </label>
+        <div id="status-message"></div>
+    </div>
+    <div id="process-container">
+        <label>Process types:</label>
+        <div class="process-step">
+        <span class="step-label">Step 1</span>
+        <button id="patch-btn" onclick="launchPatching()">Patching</button>
+        <span id="patching-status" class="status-message"></span>
+    </div>
+    
+    <div class="process-step">
+        <span class="step-label">Step 2</span>
+        <button id="predict-btn" onclick="launchPrediction()">Prediction</button>
+        <span id="prediction-status" class="status-message"></span>
+    </div>
+    
+    <div class="process-step">
+        <span class="step-label">Step 3</span>
+        <button id="merge-btn" onclick="launchMerge()">Merging</button>
+        <span id="merging-status" class="status-message"></span>
+    </div>
+    </div>
+    <div id="download-container">
+        <label>Download results:</label>
+        <button id="download-csv">Download csv</button>
+        <!--<div id="download-csv-status"></div>-->
+        <button id="download-img">Download image</button>
+        <!--<div id="download-img-status"></div>-->
+        <div id="download-status"></div>
+    </div>
+
+    <div class="jobs-container" id="jobs-container"></div>
+
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        if ('Notification' in window) {
+            Notification.requestPermission().then(permission => {
+                console.log('Notification permission:', permission);
+            });
+        }
+        let socket;
+        let predictionJobId = null;
+        let patchingJobId = null;
+        let mergingJobId = null;
+        let statusCheckInterval = {
+            patching: null,
+            prediction: null,
+            merging: null
+        };
+        let uploadedFileName = null;
+
+        const jobs = {
+            patching: {
+                id: null,
+                panel: null,
+                statusElement: document.getElementById('patching-status')
+            },
+            prediction: {
+                id: null,
+                panel: null,
+                statusElement: document.getElementById('prediction-status')
+            },
+            merging: {
+                id: null,
+                panel: null,
+                statusElement: document.getElementById('merging-status')
+            }
+
+        };
+
+        const fileInput = document.getElementById('file-input');
+        const fileLabel = document.getElementById('file-label');
+        const statusMessage = document.getElementById('status-message');
+        const patchContainer = document.getElementById('patch-container');
+        const patchButton = document.getElementById('patch-btn');
+        const predictButton = document.getElementById('predict-btn');
+        const downcsvButton = document.getElementById('download-csv');
+        const downImgButton = document.getElementById('download-img');
+        const processStatus = document.getElementById('process-status');
+        const mergeButton = document.getElementById('merge-btn');
+        //const mergeStatus = document.getElementById('merge-status');
+        const downloadStatus = document.getElementById('download-status');
+
+        function initializeSocket() {
+            socket = io({
+                reconnection: true,
+                reconnectionAttempts: Infinity,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                randomizationFactor: 0.5
+            });
+            socket.on('connect', function() {
+                console.log('Connected to websocket server');
+
+                //resubscribe to any active jobs
+                if (jobs.patching.id) socket.emit('subscribe', { job_id: jobs.patching.id});
+                if (jobs.prediction.id) socket.emit('subscribe', { job_id: jobs.prediction.id});
+                if (jobs.merging.id) socket.emit('subscribe', { job_id: jobs.merging.id});
+            });
+            socket.on('disconnect', () => {
+                console.log('Socket disconnected');
+            });
+            socket.on('reconnect_attempt', () => {
+                console.log('Attempting to reconnect');
+            });
+
+            socket.on('connect_error', (error) => {
+                console.error('Socket connection error:', error);
+            });
+
+            socket.on('job_update', function(data) {
+                console.log('Job update received:', data);
+                
+                // Find which job this update belongs to
+                let jobType = null;
+                if (data.job_id === jobs.patching.id) jobType = 'patching';
+                else if (data.job_id === jobs.prediction.id) jobType = 'prediction';
+                else if (data.job_id === jobs.merging.id) jobType = 'merging';
+                
+                if (jobType) {
+                    updateJobUI(data.status, jobs[jobType].panel, jobs[jobType].statusElement);
+                    
+                    // Handle completion/failure
+                    if (data.status.status === 'completed' || data.status.status === 'failed') {
+                        if (statusCheckInterval[jobType]) {
+                            clearInterval(statusCheckInterval[jobType]);
+                            statusCheckInterval[jobType] = null;
+                        }
+                    }
+                }
+            });
+        }
+
+        
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSocket();
+            
+            // Request notification permission
+            if ('Notification' in window) {
+                Notification.requestPermission();
+            }
+        });
+        
+        fileInput.addEventListener('change', uploadFile);
+        patchButton.addEventListener('click', launchPatching);
+        predictButton.addEventListener('click', launchPrediction);
+        mergeButton.addEventListener('click', launchMerge);
+        downcsvButton.addEventListener('click', csvDownload);
+        downImgButton.addEventListener('click', imgDownload);
+
+        function formatTime(seconds) {
+            if (seconds < 60) {
+                return `${seconds} second${seconds !== 1 ? 's' : ''}`;
+            } else if (seconds < 3600) {
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                return `${minutes} minute${minutes !== 1 ? 's' : ''} ${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`;
+
+            } else {
+                const hours = Math.floor(seconds / 3600);
+                const remainingMinutes = Math.floor((seconds % 3600) / 60);
+                return `${hours} hour${hours !== 1 ? 's' : ''} ${remainingMinutes} minute${remainingMinutes !== 1 ? 's' : ''}`;
+            }
+        }
+
+        function cleanupOldJobs() {
+            const container = document.getElementById('jobs-container');
+            const panels = container.querySelectorAll('.job-panel');
+            if (panels.length > 3) { // Keep max 3 panels
+                Array.from(panels)
+                    .slice(0, panels.length - 3)
+                    .forEach(panel => panel.remove());
+            }
+        }
+
+        // Shared function to create job panels
+        function createJobPanel(panelId, title) {
+            cleanupOldJobs();
+            const container = document.getElementById('jobs-container') || createJobsContainer();
+            const panel = document.createElement('div');
+            panel.id = panelId;
+            panel.className = 'job-panel';
+            
+            panel.innerHTML = `
+                <div class="panel-header">
+                    <h3>${title}</h3>
+                    <button class="minimize-btn">-</button>
+                </div>
+                <div class="panel-content">
+                    <div class="status-line">
+                        <span class="status-text">Starting...</span>
+                    </div>
+                    <div class="time-info">
+                        <div>Elapsed: <span class="elapsed-time">0 seconds</span></div>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-text">Progress:</div>
+                        <div class="progress-bar">
+                            <div class="progress-indicator" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-percentage">0%</div>
+                    </div>
+                    <div class="output-container">
+                        <h4>Output Log</h4>
+                        <pre class="output-log"></pre>
+                    </div>
+                </div>
+            `;
+            
+            //document.body.appendChild(panel);
+            container.appendChild(panel);
+
+            // Minimize button functionality
+            /*panel.querySelector('.minimize-btn').addEventListener('click', function() {
+                const content = panel.querySelector('.panel-content');
+                content.style.display = content.style.display === 'none' ? 'block' : 'none';
+                this.textContent = content.style.display === 'none' ? '+' : '-';
+            });*/ 
+
+            panel.querySelector('.minimize-btn').addEventListener('click', function() {
+                panel.classList.toggle('minimized');
+                this.textContent = panel.classList.contains('minimized') ? '▲' : '▼';
+            });
+
+            return panel;
+        }
+
+        function createJobsContainer() {
+            const container = document.createElement('div');
+            container.className = 'jobs-container';
+            container.id = 'jobs-container';
+            document.body.appendChild(container);
+            return container;
+        }
+
+        // Shared function to update job UI
+        function updateJobUI(status, panel, statusElement) {
+            if (!panel) return;
+
+            //progress lines
+            const fullOutput = status.output || '';
+            panel.querySelector('.output-log').textContent = fullOutput;
+            panel.querySelector('.output-log').scrollTop = panel.querySelector('.output-log').scrollHeight;
+
+            if (statusElement) {
+                statusElement.textContent = status.status || 'Unknown status';
+                statusElement.style.color = status.status === 'completed' ? 'green' : 
+                                        (status.status === 'failed' ? 'red' : 'blue');
+            }
+
+            if (status.status) {
+                panel.querySelector('.status-text').textContent = status.status;
+            }
+            
+            if (status.progress !== undefined) {
+                const progress = Math.min(100, Math.max(0, status.progress));
+                panel.querySelector('.progress-indicator').style.width = `${progress}%`;
+                panel.querySelector('.progress-percentage').textContent = `${progress.toFixed(1)}%`;
+
+                panel.querySelector('.progress-indicator').offsetHeight; // Trigger reflow
+            }
+            
+            if (status.elapsed_seconds !== undefined) {
+                panel.querySelector('.elapsed-time').textContent = formatTime(status.elapsed_seconds);
+            }
+            
+            if (status.output) {
+
+                //filter out progress lines
+                const filteredOutput = status.output.split('\n')
+                    .filter(line => !line.toLowerCase().includes('progress:'))
+                    .join('\n');
+                panel.querySelector('.output-log').textContent = filteredOutput;
+                panel.querySelector('.output-log').scrollTop = panel.querySelector('.output-log').scrollHeight;
+            }
+           
+        }
+
+        function showError(message) {
+            const statusElement = document.getElementById('status-message');
+            if (statusElement) {
+                statusElement.textContent = message;
+                statusElement.style.color = 'red';
+            }
+            console.error(message);
+            // Optional: Show browser notification
+            if (Notification.permission === 'granted') {
+                new Notification('Prediction Error', { body: message });
+            }
+        }
+
+        function showWarning(message) {
+            const statusElement = document.getElementById('status-message');
+            if (statusElement) {
+                statusElement.textContent = message;
+                statusElement.style.color = 'orange';
+            }
+            console.warn(message);
+        }
+
+        function showSuccess(message) {
+            const statusElement = document.getElementById('status-message');
+            if (statusElement) {
+                statusElement.textContent = message;
+                statusElement.style.color = 'green';
+            }
+            console.log(message);
+        }
+
+        function uploadFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            statusMessage.textContent = 'Uploading...';
+            statusMessage.style.color = 'blue';
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    statusMessage.textContent = `File uploaded successfully: ${data.filename}`;
+                    statusMessage.style.color = 'green';
+                    uploadedFileName = data.filename
+                    // patchContainer.classList.remove('hidden')
+
+                    console.log('Output:', data.output);
+                } else {
+                    statusMessage.textContent = `Upload failed: ${data.message}`;
+                    statusMessage.style.color = 'red';
+                    console.error('Error:', data.error);
+                }
+            })
+            .catch(error => {
+                statusMessage.textContent = 'Upload error';
+                statusMessage.style.color = 'red';
+                console.error('Error:', error);
+            });
+        }
+
+        function launchPatching(){
+            if (!uploadedFileName) {
+                showError('No file uploaded');
+                return;
+            }
+
+            //reset prev status
+            if (jobs.patching.panel) {
+                jobs.patching.panel.remove();
+            }
+
+            if (statusCheckInterval.patching) {
+                clearInterval(statusCheckInterval.patching);
+            }
+
+            const panelId = `patching-${Date.now()}`;
+            jobs.patching.panel = createJobPanel(panelId, "Patching Status");
+            jobs.patching.statusElement.textContent = "Creating patches started...";
+            jobs.patching.statusElement.style.color = "blue";
+
+            fetch('/patch', {
+                method: 'POST', headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ filename: uploadedFileName }) 
+            })
+            .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        jobs.patching.id = data.job_id;
+                        //jobPanels[data.job_id] = document.getElementById(panelId);
+
+                        statusCheckInterval = setInterval(() => {
+                            fetch(`/job-status/${jobs.patching.id}`)
+                                    .then(response => response.json())
+                                    .then(data => {
+                                        if (data.success) {
+                                            updateJobUI(data.job, jobs.patching.panel, jobs.patching.statusElement);
+
+                                            // force progress updates
+                                            if (data.job.progress) {
+                                                const progressBar = jobs.patching.panel.querySelector('.progress-indicator');
+                                                progressBar.style.width = `${data.job.progress}%`;
+                                                progressBar.offsetHeight; //trigger reflow
+                                            }
+                                        }
+                                    });
+                        
+                        }, 2000);
+                    } 
+                });
+        }
+
+
+        function launchPrediction(){
+            if (!uploadedFileName) {
+                showError('No file uploaded');
+                return;
+            }
+
+            //reset prev status
+            if (jobs.prediction.panel) {
+                jobs.prediction.panel.remove();
+            }
+
+            if (statusCheckInterval.prediction) {
+                clearInterval(statusCheckInterval.prediction);
+            }
+
+            const panelId = `prediction-${Date.now()}`;
+            jobs.prediction.panel = createJobPanel(panelId, "Prediction Status");
+            jobs.prediction.statusElement.textContent = "Prediction started...";
+            jobs.prediction.statusElement.style.color = "blue";
+
+            fetch('/predict', {
+                method: 'POST', headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ filename: uploadedFileName }) 
+            })
+            .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        jobs.prediction.id = data.job_id;
+                        //jobPanels[data.job_id] = document.getElementById(panelId);
+
+                        statusCheckInterval = setInterval(() => {
+                            fetch(`/job-status/${jobs.prediction.id}`)
+                                    .then(response => response.json())
+                                    .then(data => {
+                                        if (data.success) {
+                                            updateJobUI(data.job, jobs.prediction.panel, jobs.prediction.statusElement);
+
+                                            // force progress updates
+                                            if (data.job.progress) {
+                                                const progressBar = jobs.prediction.panel.querySelector('.progress-indicator');
+                                                progressBar.style.width = `${data.job.progress}%`;
+                                                progressBar.offsetHeight; //trigger reflow
+                                            }
+                                        }
+                                    });
+                        
+                        }, 2000);
+                    } 
+                });
+        }
+
+
+        function launchMerge(){
+            if (!uploadedFileName) {
+                showError('No file uploaded');
+                return;
+            }
+
+            if (jobs.merging.panel) {
+                jobs.merging.panel.remove();
+            }
+
+            const panelId = `merging-${Date.now()}`;
+            jobs.merging.panel = createJobPanel(panelId, "Merging Status");
+            jobs.merging.statusElement.textContent = "Merging started...";
+            jobs.merging.statusElement.style.color = "blue";
+            //mergeButton.disabled = true;
+
+            fetch('/merge', {
+                method: 'POST', headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ filename: uploadedFileName }) 
+        })
+        .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    jobs.merging.id = data.job_id;
+
+                    statusCheckInterval = setInterval(() => {
+                            fetch(`/job-status/${jobs.merging.id}`)
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.success) {
+                                        updateJobUI(data.job, jobs.merging.panel, jobs.merging.statusElement);
+                                    }
+                                });
+                        }, 5000);
+                    } 
+                });
+        }
+
+        function csvDownload(){
+            if (!uploadedFileName) {
+                downloadStatus.textContent = 'No file uploaded'
+                downloadStatus.style.color = 'red'
+                return
+            }
+
+            downloadStatus.textContent = 'Preparing to download csv file...'
+            downloadStatus.style.color = 'blue'
+
+            
+            // return root name eg. UM032_HE.bif -> UM032_HE
+            const baseName = uploadedFileName.split('.')[0];
+
+            const params = new URLSearchParams({ filename: uploadedFileName,
+                t: new Date().getTime() //cache prevent
+            });
+
+            fetch(`/get-csv?${params}`, {
+                method: 'GET', headers: {
+                    //'Content-Type': 'application/text',
+                    'Accept': 'text/csv'
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    downloadStatus.textContent = 'Starting download...';
+
+                    //create blob for the csv
+                    return response.blob().then(blob => {
+                        const url = window.URL.createObjectURL(blob);
+
+                        const downloadLink = document.createElement('a');
+                        downloadLink.href = url;
+                        downloadLink.download = `nucleus_info_${baseName}_Vaha.csv`;
+                        document.body.appendChild(downloadLink);
+                        downloadLink.click();
+                        document.body.removeChild(downloadLink);
+
+                        window.URL.revokeObjectURL(url);
+
+                        downloadStatus.textContent = 'Download complete!';
+                        downloadStatus.style.color = 'green';
+                    });
+                } else {
+                    downloadStatus.textContent = 'Result CSV not found.';
+                    downloadStatus.style.color = 'red';
+                    return Promise.reject('CSV not found');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                downloadStatus.textContent = 'Error downloading file';
+                downloadStatus.style.color = 'red';
+        })
+
+        }
+
+        function imgDownload() {
+            if (!uploadedFileName) {
+                downloadStatus.textContent = 'No file uploaded'
+                downloadStatus.style.color = 'red'
+                return
+            }
+
+            const baseName = uploadedFileName.split('.')[0];
+            const params = new URLSearchParams({ filename: uploadedFileName,
+                t: new Date().getTime() //cache prevent
+            });
+
+            fetch(`/get-img?${params}`, {
+                method: 'GET', headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    downloadStatus.textContent = 'Starting download...';
+
+                    //create blob for the csv
+                    return response.blob().then(blob => {
+                        const url = window.URL.createObjectURL(blob);
+
+                        const downloadLink = document.createElement('a');
+                        downloadLink.href = url;
+                        downloadLink.download = `Merge_${baseName}_Vaha.png`;
+                        document.body.appendChild(downloadLink);
+                        downloadLink.click();
+                        document.body.removeChild(downloadLink);
+
+                        window.URL.revokeObjectURL(url);
+
+                        downloadStatus.textContent = 'Download complete!';
+                        downloadStatus.style.color = 'green';
+                    });
+                } else {
+                    downloadStatus.textContent = 'Overlay image not found.';
+                    downloadStatus.style.color = 'red';
+                    return Promise.reject('Overlay image not found');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                downloadStatus.textContent = 'Error downloading file';
+                downloadStatus.style.color = 'red';
+        })
+
+        }
+
+        window.addEventListener('load', function() {
+        if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+            Notification.requestPermission();
+            }
+        });
+
+        
+       
+    </script>
+</body>
+</html>

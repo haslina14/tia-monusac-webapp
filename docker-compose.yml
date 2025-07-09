@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    runtime: nvidia
+    restart: unless-stopped
+    container_name: tiamonusac-container
+    init: true
+    stop_signal: SIGINT #flask require sigint to stop gracefully
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./uploads:/app/uploads #to mount
+    environment:
+      - PYTHONPATH=/app
+      - CONDA_DEFAULT_ENV=tia-gui
+      - NVIDIA_VISIBLE_DEVICES=all
+    command: conda run -n tia-gui python app.py
