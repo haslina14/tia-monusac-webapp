@@ -12,4 +12,11 @@ services:
     environment:
       - PYTHONPATH=/app
       - CONDA_DEFAULT_ENV=tia-gui
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all #how many gpus can be connected
+            capabilities: [gpu]
     command: conda run -n tia-gui python app.py
