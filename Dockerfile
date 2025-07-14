@@ -36,7 +36,10 @@ RUN conda run -n tiagui-v2 pip install --no-cache-dir \
     scipy==1.14.1 \
     scikit-learn==1.5.2 \
     pyvips==2.2.3 \
-    openslide-python==1.4.1
+    openslide-python==1.4.1 \
+    flask-socketio==5.5.1 \
+    tifffile==2024.9.20 \
+    werkzeug==3.1.3
 
 #set env default
 ENV CONDA_DEFAULT_ENV=tiagui-v2

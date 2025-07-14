@@ -12,4 +12,11 @@ services:
     environment:
       - PYTHONPATH=/app
       - CONDA_DEFAULT_ENV=tiagui-v2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     command: conda run -n tiagui-v2 python app.py
