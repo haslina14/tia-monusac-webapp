@@ -11,12 +11,5 @@ services:
       - ./uploads:/app/uploads #to mount
     environment:
       - PYTHONPATH=/app
-      - CONDA_DEFAULT_ENV=tia-gui
-    deploy:
-      resources:
-        reservations:
-          devices:
-          - driver: nvidia
-            count: all #how many gpus can be connected
-            capabilities: [gpu]
-    command: conda run -n tia-gui python app.py
+      - CONDA_DEFAULT_ENV=tiagui-v2
+    command: conda run -n tiagui-v2 python app.py
