@@ -51,7 +51,7 @@ def predict(file_id_name):
     start_time = time.time()
     print(f"progress: 0.0%", flush=True)
 
-    os.makedirs(save_dir_base, exist_ok=True)
+    #os.makedirs(save_dir_base, exist_ok=True)
 
     #progress monitoring
     progress_stop_event = threading.Event()
@@ -165,7 +165,8 @@ def cellsCount(file_id_name):
                 tile_preds = joblib.load(dat_paths[i])
                 tile_name = os.path.splitext(os.path.basename(tile_paths[i]))[0]
                 dat_name = os.path.splitext(os.path.basename(dat_paths[i]))[0]
-                logging.info(f"Tile with dat code: ", tile_name, "@", dat_name)
+                #logging.info(f"Tile with dat code: ", tile_name, "@", dat_name)
+                logging.info(f"Tile with dat code: {tile_name} @ {dat_name}")
 
                 # Count occurrences of each cell type
                 class_counts = Counter()
