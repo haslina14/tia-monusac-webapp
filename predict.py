@@ -1,4 +1,4 @@
-import logging
+import logging, threading
 from logging.handlers import RotatingFileHandler
 import cv2
 import joblib
@@ -50,33 +50,71 @@ def predict(file_id_name):
     # Record start time
     start_time = time.time()
     print(f"progress: 0.0%", flush=True)
-    
+
+    os.makedirs(save_dir_base, exist_ok=True)
+
+    #progress monitoring
+    progress_stop_event = threading.Event()
+    progress_thread = None
+
+    def monitor_progress():
+        """Monitor output dir for new .dat files"""
+        last_processed = 0
+
+        while not progress_stop_event.is_set():
+            try:
+                processed_files = glob.glob(os.path.join(save_dir_base, "*.dat"))
+                processed_count = len(processed_files)
+
+                if processed_count > last_processed:
+                    last_processed = processed_count
+
+                    progress = min(99.0, (processed_count / total_tiles) * 100)
+
+                    #update progress every 1%
+                    progress_interval = max(1, total_tiles // 100)
+
+                    if processed_count % progress_interval == 0 or processed_count == total_tiles:
+                        print(f"progress: {progress:.1f}%", flush=True)
+                        logging.info(f"Processed {processed_count}/{total_tiles} tiles ({progress:.1f}%)")
+
+                if processed_count >= total_tiles:
+                    break
+
+            except Exception as e:
+                logging.error(f"Error in progress monitoring: {e}")
+
+            time.sleep(0.5) #every 0.5 seconds
     
 
     try:
+        progress_thread = threading.Thread(target=monitor_progress, daemon=True)
+        progress_thread.start()
+
         # Initialize the segmentor
         inst_segmentor = NucleusInstanceSegmentor(
             pretrained_model="hovernet_fast-monusac",
             num_loader_workers=2,
             num_postproc_workers=2,
-            batch_size=1, #reduced to 1 for sequential processing
+            batch_size=4, #reduced to 1 for sequential processing
         )
 
         # Perform segmentation on the tile
-        inst_segmentor.predict(tile_paths, save_dir=save_dir_base, mode="tile", device='cuda', crash_on_exception=True)
+        inst_segmentor.predict(
+            tile_paths,
+            save_dir=save_dir_base,
+            mode="tile",
+            device='cuda',
+            crash_on_exception=True)
         
-        while True:
-            processed = len(glob.glob(os.path.join(save_dir_base, "*.dat")))  # or whatever output format
-            progress_interval = max(1, total_tiles // 100) 
-            
-            if processed % progress_interval == 0:
-                progress = min(99.0, (processed / total_tiles) * 100)
-                print(f"progress: {progress:.1f}%", flush=True)
-            
-            if processed >= total_tiles:
-                break
-            
-            time.sleep(1)
+        progress_stop_event.set()
+
+        if progress_thread and progress_thread.is_alive():
+            progress_thread.join(timeout=2)
+
+        final_processed = len(glob.glob(os.path.join(save_dir_base, "*.dat")))
+        if final_processed >= total_tiles:
+            print(f"progress: 100.0%", flush=True)
         
         # Log checkpoint timer
         elapsed_time = time.time() - start_time
@@ -85,16 +123,18 @@ def predict(file_id_name):
         logging.info(f"Prediction time: {minutes} minutes {seconds} seconds")
     
     except Exception as e:
+        if progress_thread:
+            progress_stop_event.set()
         logging.error(f"Error processing file id {full_id}: {e}")
         return None
     
 
     logging.info(f"Finished processing file id: {full_id}")
-    #return full_id
     return True
 
 def cellsCount(file_id_name):
     try:
+        print("Counting cells started...")
         ## Overlay image making
         # Load each .dat file collect class count and overlay the image 
         dat_dir = f"./uploads/{file_id_name}/result/"  # Directory containing the .dat files
