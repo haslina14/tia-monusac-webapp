@@ -1,2 +1,2 @@
 # tia-gui
-GUI integrating prediction model by TIA group for non-computational users. This also dockerized.
+GUI integrating prediction model by TIA group for non-computational users. p/s: just to let you know, it's not working atm...
